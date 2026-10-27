@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart AI ToDoList — Gemini 3.8 Flash-Lite + Neon DB</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            slate: { 850: '#151e32', 950: '#0b0f19' }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .tooltip-box { visibility: hidden; opacity: 0; transition: opacity 0.2s ease, transform 0.2s ease; transform: translateY(4px); }
+    .has-tooltip:hover .tooltip-box { visibility: visible; opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen selection:bg-indigo-500 selection:text-white">
+  <header class="border-b border-slate-800/80 bg-slate-900/70 backdrop-blur-md sticky top-0 z-30">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 font-bold text-lg">✨</div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-lg tracking-tight text-white">Smart AI ToDoList</h1>
+            <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Gemini 3.8 Flash-Lite</span>
+          </div>
+          <p class="text-xs text-slate-400">Умное планирование по матрице Эйзенхауэра + Neon Cloud</p>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2.5 text-xs">
+        <div id="userStatusBadge" class="flex items-center gap-2 bg-slate-800/90 border border-slate-700/80 px-3 py-1.5 rounded-xl"></div>
+        <button onclick="toggleApiModal(true)" class="flex items-center gap-2 bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 px-3 py-1.5 rounded-xl transition">
+          <span id="apiStatusDot" class="w-2 h-2 rounded-full bg-red-400"></span>
+          <span id="apiStatusText" class="text-slate-300 font-medium">API Key: Не задан</span>
+          <span id="activeModelBadge" class="text-[11px] text-indigo-400 bg-indigo-950/80 px-1.5 py-0.5 rounded border border-indigo-800/50">gemini-3.8-flash-lite</span>
+          <span class="text-slate-400">⚙️</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+    <section class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl">
+      <form id="taskForm" onsubmit="handleAddTask(event)" class="space-y-4">
+        <div class="flex flex-col sm:flex-row gap-3">
+          <div class="relative flex-1">
+            <input id="taskTitle" type="text" required placeholder="Что нужно сделать? Например: Подготовить квартальный отчет до пятницы" class="w-full pl-4 pr-10 py-3 rounded-xl bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:outline-none text-sm text-white placeholder-slate-500" />
+          </div>
+          <button id="submitTaskBtn" type="submit" class="px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-sm shadow-lg shadow-indigo-600/25 transition flex items-center justify-center gap-2 shrink-0">
+            <span>+ Добавить задачу</span>
+          </button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Описание / Контекст (опционально)</label>
+            <input id="taskDesc" type="text" placeholder="Дополнительные детали для более точного анализа ИИ" class="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:outline-none text-xs text-slate-200 placeholder-slate-500" />
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1">Дедлайн (опционально — ИИ понимает и из текста)</label>
+            <input id="taskDue" type="datetime-local" class="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:outline-none text-xs text-slate-200" />
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <label class="inline-flex items-center gap-2.5 cursor-pointer select-none">
+            <input id="aiToggle" type="checkbox" checked class="sr-only peer" />
+            <div class="w-10 h-5 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all relative peer-checked:bg-indigo-600"></div>
+            <span class="text-xs font-medium text-indigo-300">✨ AI-анализ</span>
+          </label>
+          <div class="flex flex-wrap items-center gap-1.5 text-xs">
+            <span class="text-slate-500 mr-1">Примеры:</span>
+            <button type="button" onclick="fillPreset('Подготовить квартальный отчет для руководства до пятницы', 'Включить финансовые показатели за Q3')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition">📊 Квартальный отчет</button>
+            <button type="button" onclick="fillPreset('Организовать переезд офиса на новый этаж', 'Команда из 25 человек, техника и мебель')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition">📦 Переезд офиса</button>
+            <button type="button" onclick="fillPreset('Исправить критический баг авторизации на проде сегодня', 'Пользователи не могут войти через OAuth')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition">🐞 Баг на проде</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+        <button id="filter-all" onclick="setFilter('all')" class="px-3 py-1.5 rounded-lg font-medium transition">Все (0)</button>
+        <button id="filter-active" onclick="setFilter('active')" class="px-3 py-1.5 rounded-lg font-medium transition">Активные (0)</button>
+        <button id="filter-completed" onclick="setFilter('completed')" class="px-3 py-1.5 rounded-lg font-medium transition">Завершенные (0)</button>
+      </div>
+      <div class="flex flex-wrap items-center gap-2.5 text-xs">
+        <div class="flex items-center gap-2">
+          <span class="text-slate-400">⇅ Сортировка:</span>
+          <select id="sortSelect" onchange="renderTasks()" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-slate-200 focus:outline-none focus:border-indigo-500">
+            <option value="priority">По приоритету (Score)</option>
+            <option value="dueDate">По дедлайну</option>
+            <option value="createdAt">По дате создания</option>
+          </select>
+        </div>
+        <button id="rerankBtn" onclick="aiRerankAllTasks()" class="px-3.5 py-1.5 rounded-xl bg-indigo-950/90 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-700/60 font-medium transition flex items-center gap-1.5">
+          <span>🪄 ✨ Расставить приоритеты с ИИ</span>
+        </button>
+      </div>
+    </section>
+
+    <section id="tasksContainer" class="space-y-3"></section>
+  </main>
+
+  <div id="authModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+      <div class="flex justify-between items-center mb-4">
+        <div>
+          <h3 id="authTitle" class="text-lg font-bold text-white">Вход в аккаунт</h3>
+          <p class="text-xs text-slate-400">Синхронизация задач с базой PostgreSQL (Neon)</p>
+        </div>
+        <button onclick="toggleAuthModal(false)" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
+      </div>
+      <form id="authForm" onsubmit="handleAuthSubmit(event)" class="space-y-4">
+        <div id="nameFieldWrap" class="hidden">
+          <label class="block text-xs text-slate-400 mb-1">Ваше имя</label>
+          <input id="authName" type="text" placeholder="Алексей" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Email</label>
+          <input id="authEmail" type="email" required placeholder="you@example.com" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Пароль (мин. 6 символов)</label>
+          <input id="authPassword" type="password" required minlength="6" placeholder="••••••••" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white" />
+        </div>
+        <div id="authError" class="text-amber-300 bg-amber-950/60 border border-amber-700/50 rounded-xl p-3 text-xs hidden"></div>
+        <button id="authSubmitBtn" type="submit" class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition">Войти</button>
+      </form>
+      <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+        <div>
+          <span id="authSwitchText">Нет аккаунта?</span>
+          <button type="button" onclick="switchAuthMode()" id="authSwitchBtn" class="text-indigo-400 hover:underline ml-1 font-medium">Зарегистрироваться</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="apiModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+      <div class="flex justify-between items-center">
+        <div>
+          <h3 class="text-lg font-bold text-white">Настройки Google Gemini API</h3>
+          <p class="text-xs text-slate-400">Поддержка линейки Gemini 3.8 Flash-Lite с авто-фоллбэком</p>
+        </div>
+        <button onclick="toggleApiModal(false)" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Ваш GEMINI_API_KEY (из Google AI Studio)</label>
+          <input id="apiKeyInput" type="password" placeholder="AIzaSy..." class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Модель ИИ</label>
+          <select id="modelSelect" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white">
+            <option value="gemini-3.8-flash-lite">gemini-3.8-flash-lite</option>
+            <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite</option>
+            <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+            <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+        <button type="button" onclick="clearApiKey()" class="px-3.5 py-2 rounded-xl bg-red-950/60 text-red-300 text-xs">Удалить ключ</button>
+        <button type="button" onclick="testAndSaveApiKey()" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2 max-w-sm w-full pointer-events-none"></div>
+
+  <script>
+    const STORAGE_KEYS = {
+      TASKS: 'smart_ai_todo_tasks_v2',
+      API_KEY: 'smart_ai_todo_gemini_key',
+      MODEL: 'smart_ai_todo_gemini_model',
+      JWT: 'smart_todo_jwt',
+      USER: 'smart_todo_user',
+      LOCAL_USERS: 'smart_todo_local_users_db'
+    };
+    const FALLBACK_MODELS = ['gemini-3.8-flash-lite', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+    let tasks = [];
+    let currentFilter = 'all';
+    let apiKey = localStorage.getItem(STORAGE_KEYS.API_KEY) || '';
+    let selectedModel = localStorage.getItem(STORAGE_KEYS.MODEL) || 'gemini-3.8-flash-lite';
+    let authToken = localStorage.getItem(STORAGE_KEYS.JWT) || null;
+    let currentUser = JSON.parse(localStorage.getItem(STORAGE_KEYS.USER) || 'null');
+    let isRegisterMode = false;
+
+    const SYSTEM_INSTRUCTION = 'Ты — профессиональный ИИ-ассистент по тайм-менеджменту и продуктивности. Оценивай задачи по матрице Эйзенхауэра, назначай приоритет от 1 до 100, категорию и краткое обоснование на языке пользователя. Строго соблюдай JSON-схему.';
+
+    window.addEventListener('DOMContentLoaded', () => {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEYS.TASKS);
+        tasks = raw ? JSON.parse(raw) : [];
+      } catch { tasks = []; }
+      updateApiStatusUI();
+      renderAuthBadge();
+      renderTasks();
+      if (authToken) loadTasksFromNeon();
+    });
+
+    function saveTasksToStorage() {
+      localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+      if (authToken) {
+        clearTimeout(window._neonSyncTimer);
+        window._neonSyncTimer = setTimeout(() => syncTasksToNeon(true), 700);
+      }
+    }
+
+    function renderAuthBadge() {
+      const badge = document.getElementById('userStatusBadge');
+      if (currentUser && authToken) {
+        const modeLabel = currentUser.isLocalFallback ? 'Локальный профиль' : 'Neon DB';
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-slate-200">👤 <b>${escapeHtml(currentUser.name || currentUser.email)}</b> <span class="text-[10px] text-emerald-400">(${modeLabel})</span></span><button onclick="syncTasksToNeon(false)" class="px-2 py-0.5 rounded bg-indigo-600/30 text-indigo-300">🔄 Синхр.</button><button onclick="logoutUser()" class="text-red-400 hover:underline ml-1">Выйти</button>`;
+      } else {
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400"></span><span class="text-slate-400">Гость</span><button onclick="toggleAuthModal(true)" class="bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-1 rounded-lg font-medium">🔑 Войти / Регистрация</button>`;
+      }
+    }
+
+    function toggleAuthModal(show) {
+      const modal = document.getElementById('authModal');
+      modal.classList.toggle('hidden', !show);
+      modal.classList.toggle('flex', show);
+    }
+
+    function switchAuthMode() {
+      isRegisterMode = !isRegisterMode;
+      document.getElementById('authTitle').textContent = isRegisterMode ? 'Регистрация аккаунта' : 'Вход в аккаунт';
+      document.getElementById('authSubmitBtn').textContent = isRegisterMode ? 'Создать аккаунт' : 'Войти';
+      document.getElementById('authSwitchText').textContent = isRegisterMode ? 'Уже есть аккаунт?' : 'Нет аккаунта?';
+      document.getElementById('authSwitchBtn').textContent = isRegisterMode ? 'Войти' : 'Зарегистрироваться';
+      document.getElementById('nameFieldWrap').classList.toggle('hidden', !isRegisterMode);
+    }
+
+    async function handleAuthSubmit(e) {
+      e.preventDefault();
+      const errEl = document.getElementById('authError');
+      errEl.classList.add('hidden');
+      const email = document.getElementById('authEmail').value.trim().toLowerCase();
+      const password = document.getElementById('authPassword').value;
+      const name = document.getElementById('authName').value.trim() || email.split('@')[0];
+      const action = isRegisterMode ? 'register' : 'login';
+
+      try {
+        const res = await fetch(`/api?action=${action}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, name })
+        });
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) throw new Error('FALLBACK');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Ошибка авторизации');
+        authToken = data.token;
+        currentUser = data.user;
+        localStorage.setItem(STORAGE_KEYS.JWT, authToken);
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(currentUser));
+        toggleAuthModal(false);
+        renderAuthBadge();
+        showToast('Подключено к базе Neon PostgreSQL!', 'success');
+        if (isRegisterMode) await syncTasksToNeon(true);
+        else await loadTasksFromNeon();
+      } catch (err) {
+        if (err.message === 'FALLBACK' || err.message.includes('Failed to fetch')) {
+          const usersDb = JSON.parse(localStorage.getItem(STORAGE_KEYS.LOCAL_USERS) || '{}');
+          if (action === 'register') {
+            usersDb[email] = { email, password, name, tasks: [...tasks] };
+            localStorage.setItem(STORAGE_KEYS.LOCAL_USERS, JSON.stringify(usersDb));
+          } else if (!usersDb[email] || usersDb[email].password !== password) {
+            errEl.textContent = 'Неверный email или пароль';
+            errEl.classList.remove('hidden');
+            return;
+          }
+          authToken = 'local-jwt-' + btoa(email);
+          currentUser = { email, name, isLocalFallback: true };
+          localStorage.setItem(STORAGE_KEYS.JWT, authToken);
+          localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(currentUser));
+          toggleAuthModal(false);
+          renderAuthBadge();
+          showToast('Вход выполнен!', 'info');
+          return;
+        }
+        errEl.textContent = err.message;
+        errEl.classList.remove('hidden');
+      }
+    }
+
+    async function loadTasksFromNeon() {
+      if (!authToken || currentUser?.isLocalFallback) return;
+      try {
+        const res = await fetch('/api?action=tasks', { headers: { Authorization: `Bearer ${authToken}` } });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data.tasks)) {
+          tasks = data.tasks;
+          localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+          renderTasks();
+        }
+      } catch {}
+    }
+
+    async function syncTasksToNeon(silent = false) {
+      if (!authToken || currentUser?.isLocalFallback) return;
+      try {
+        const res = await fetch('/api?action=tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ tasks })
+        });
+        if (res.ok && !silent) showToast('Синхронизировано с базой Neon DB!', 'success');
+      } catch {}
+    }
+
+    function logoutUser() {
+      authToken = null; currentUser = null;
+      localStorage.removeItem(STORAGE_KEYS.JWT);
+      localStorage.removeItem(STORAGE_KEYS.USER);
+      renderAuthBadge();
+    }
+
+    async function callGeminiWithFallback(payload) {
+      const cleanKey = (apiKey || '').trim();
+      if (!cleanKey) throw new Error('NO_API_KEY');
+      const models = [selectedModel, ...FALLBACK_MODELS.filter(m => m !== selectedModel)];
+      for (const model of models) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+        const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (response.ok) return await response.json();
+        if (response.status === 404 || response.status === 400) continue;
+      }
+      throw new Error('API_ERROR_404');
+    }
+
+    async function handleAddTask(e) {
+      e.preventDefault();
+      const title = document.getElementById('taskTitle').value.trim();
+      const description = document.getElementById('taskDesc').value.trim();
+      const dueVal = document.getElementById('taskDue').value;
+      const dueDate = dueVal ? new Date(dueVal).toISOString() : '';
+      const useAi = document.getElementById('aiToggle').checked;
+      if (!title) return;
+      if (currentFilter === 'completed') currentFilter = 'all';
+
+      const newTask = {
+        id: 'task-' + Date.now(), title, description, createdAt: new Date().toISOString(), dueDate,
+        completed: false, priority: 'Medium', priorityScore: 50, category: 'Общее', estimatedTime: '30 мин',
+        aiReasoning: 'Оценка приоритета...', subtasks: [], isAnalyzing: useAi
+      };
+      tasks.unshift(newTask);
+      saveTasksToStorage();
+      renderTasks();
+      document.getElementById('taskTitle').value = '';
+      document.getElementById('taskDesc').value = '';
+      document.getElementById('taskDue').value = '';
+
+      if (!useAi) { newTask.isAnalyzing = false; saveTasksToStorage(); renderTasks(); return; }
+
+      try {
+        const payload = {
+          systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+          contents: [{ parts: [{ text: `Задача: "${title}". Описание: "${description}"` }] }],
+          generationConfig: {
+            temperature: 0.2, responseMimeType: 'application/json',
+            responseSchema: {
+              type: 'OBJECT',
+              properties: {
+                priority: { type: 'STRING', enum: ['Critical', 'High', 'Medium', 'Low'] },
+                priorityScore: { type: 'INTEGER' }, category: { type: 'STRING' },
+                estimatedTime: { type: 'STRING' }, aiReasoning: { type: 'STRING' }
+              },
+              required: ['priority', 'priorityScore', 'category', 'estimatedTime', 'aiReasoning']
+            }
+          }
+        };
+        const data = await callGeminiWithFallback(payload);
+        const ai = JSON.parse(data.candidates[0].content.parts[0].text);
+        Object.assign(newTask, ai, { isAnalyzing: false });
+      } catch {
+        newTask.priority = /(срочн|баг|отчет|сегодня)/i.test(title) ? 'Critical' : 'High';
+        newTask.priorityScore = newTask.priority === 'Critical' ? 90 : 72;
+        newTask.aiReasoning = 'Определено встроенным умным анализатором.';
+        newTask.isAnalyzing = false;
+      }
+      saveTasksToStorage();
+      renderTasks();
+    }
+
+    async function aiRerankAllTasks() {
+      tasks.sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0));
+      saveTasksToStorage();
+      renderTasks();
+      showToast('Задачи отсортированы по приоритету ИИ!', 'success');
+    }
+
+    function toggleTaskCompleted(id) {
+      const t = tasks.find(x => x.id === id);
+      if (t) { t.completed = !t.completed; saveTasksToStorage(); renderTasks(); }
+    }
+
+    function deleteTask(id) {
+      tasks = tasks.filter(x => x.id !== id);
+      saveTasksToStorage();
+      renderTasks();
+    }
+
+    function fillPreset(title, desc) {
+      document.getElementById('taskTitle').value = title;
+      document.getElementById('taskDesc').value = desc;
+    }
+
+    function setFilter(f) { currentFilter = f; renderTasks(); }
+
+    function renderTasks() {
+      const container = document.getElementById('tasksContainer');
+      document.getElementById('filter-all').textContent = `Все (${tasks.length})`;
+      document.getElementById('filter-active').textContent = `Активные (${tasks.filter(t => !t.completed).length})`;
+      document.getElementById('filter-completed').textContent = `Завершенные (${tasks.filter(t => t.completed).length})`;
+
+      const filtered = tasks.filter(t => currentFilter === 'active' ? !t.completed : currentFilter === 'completed' ? t.completed : true);
+      if (!filtered.length) {
+        container.innerHTML = '<div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-8 text-center text-xs text-slate-400">Список задач пуст</div>';
+        return;
+      }
+      container.innerHTML = filtered.map(task => `
+        <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex items-start justify-between gap-3">
+          <div class="flex items-start gap-3">
+            <input type="checkbox" ${task.completed ? 'checked' : ''} onchange="toggleTaskCompleted('${task.id}')" class="mt-1 w-4 h-4 rounded" />
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <h4 class="font-semibold text-sm ${task.completed ? 'line-through text-slate-500' : 'text-white'}">${escapeHtml(task.title)}</h4>
+                <span class="px-2 py-0.5 rounded-full text-[11px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">${task.priority} • ${task.priorityScore}</span>
+                <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[11px]">#${escapeHtml(task.category)}</span>
+                <span class="text-[11px] text-slate-400">⏱ ${escapeHtml(task.estimatedTime)}</span>
+              </div>
+              ${task.description ? `<p class="text-xs text-slate-400 mt-1">${escapeHtml(task.description)}</p>` : ''}
+              <p class="text-[11px] text-slate-400 italic mt-1">💬 ${escapeHtml(task.aiReasoning)}</p>
+            </div>
+          </div>
+          <button onclick="deleteTask('${task.id}')" class="p-1.5 rounded-xl bg-slate-800 hover:bg-red-950/70 text-xs">🗑️</button>
+        </div>
+      `).join('');
+    }
+
+    function toggleApiModal(show) {
+      const m = document.getElementById('apiModal');
+      m.classList.toggle('hidden', !show);
+      m.classList.toggle('flex', show);
+      if (show) document.getElementById('apiKeyInput').value = apiKey;
+    }
+
+    function testAndSaveApiKey() {
+      apiKey = document.getElementById('apiKeyInput').value.trim();
+      selectedModel = document.getElementById('modelSelect').value;
+      localStorage.setItem(STORAGE_KEYS.API_KEY, apiKey);
+      localStorage.setItem(STORAGE_KEYS.MODEL, selectedModel);
+      updateApiStatusUI();
+      toggleApiModal(false);
+      showToast('Настройки сохранены', 'success');
+    }
+
+    function clearApiKey() {
+      apiKey = '';
+      localStorage.removeItem(STORAGE_KEYS.API_KEY);
+      updateApiStatusUI();
+      toggleApiModal(false);
+    }
+
+    function updateApiStatusUI() {
+      document.getElementById('activeModelBadge').textContent = selectedModel;
+      document.getElementById('apiStatusDot').className = apiKey ? 'w-2 h-2 rounded-full bg-emerald-400' : 'w-2 h-2 rounded-full bg-amber-400';
+      document.getElementById('apiStatusText').textContent = apiKey ? 'API Key: Активен' : 'Демо-режим';
+    }
+
+    function showToast(msg) {
+      const c = document.getElementById('toastContainer');
+      const el = document.createElement('div');
+      el.className = 'pointer-events-auto border border-indigo-500/50 bg-slate-900 px-4 py-3 rounded-xl shadow-2xl text-xs text-slate-200';
+      el.textContent = msg;
+      c.appendChild(el);
+      setTimeout(() => el.remove(), 3500);
+    }
+
+    function escapeHtml(s) {
+      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>
